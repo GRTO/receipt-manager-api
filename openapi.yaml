@@ -1,0 +1,326 @@
+openapi: 3.1.0
+info:
+  title: Receipt Manager API
+  version: 0.1.0
+  description: >-
+    First-release contract for personal receipts. Only /health is implemented today;
+    the /v1 routes are the contract for Steps 3-8. Amounts are decimal strings with
+    two fractional digits, and dates are calendar dates in YYYY-MM-DD form.
+servers:
+  - url: http://127.0.0.1:3000
+security:
+  - bearerAuth: []
+paths:
+  /health:
+    get:
+      security: []
+      summary: Liveness and readiness while the service has no external dependencies
+      responses:
+        "200":
+          description: Service is running
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status]
+                properties:
+                  status: { type: string, const: ok }
+  /v1/me:
+    get:
+      summary: Return the signed-in user
+      responses:
+        "200":
+          description: User profile
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/User" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+  /v1/categories:
+    get:
+      summary: List selectable receipt categories
+      responses:
+        "200":
+          description: Categories
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/Category" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+  /v1/receipts:
+    get:
+      summary: List the signed-in user's receipts
+      description: >-
+        Results use keyset pagination ordered by purchaseDate descending, then id
+        descending. A cursor encodes the final item's sort values. No ownership
+        parameter exists because the first release is personal-only.
+      parameters:
+        - { name: search, in: query, schema: { type: string, maxLength: 200 } }
+        - {
+            name: month,
+            in: query,
+            schema: { type: string, pattern: '^\d{4}-(0[1-9]|1[0-2])$' },
+          }
+        - {
+            name: categoryId,
+            in: query,
+            schema: { type: string, format: uuid },
+          }
+        - {
+            name: limit,
+            in: query,
+            schema: { type: integer, minimum: 1, maximum: 100, default: 25 },
+          }
+        - { name: cursor, in: query, schema: { type: string } }
+      responses:
+        "200":
+          description: Receipt page
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, nextCursor]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/Receipt" }
+                  nextCursor: { type: [string, "null"] }
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+    post:
+      summary: Create a reviewed receipt for the signed-in user
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ReceiptInput" }
+      responses:
+        "201":
+          description: Created receipt
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Receipt" }
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+  /v1/receipts/{id}:
+    parameters:
+      - {
+          name: id,
+          in: path,
+          required: true,
+          schema: { type: string, format: uuid },
+        }
+    get:
+      summary: Read one owned receipt
+      responses:
+        "200":
+          description: Receipt
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Receipt" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    patch:
+      summary: Update one owned receipt
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ReceiptPatch" }
+      responses:
+        "200":
+          description: Updated receipt
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Receipt" }
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    delete:
+      summary: Delete one owned receipt and schedule its image for cleanup
+      responses:
+        "204": { description: Receipt deleted }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /v1/uploads:
+    post:
+      summary: Request a short-lived target for a private receipt image
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [contentType, sizeBytes]
+              properties:
+                contentType:
+                  { type: string, enum: [image/jpeg, image/png, image/webp] }
+                sizeBytes: { type: integer, minimum: 1, maximum: 10485760 }
+      responses:
+        "201":
+          description: Upload target bound to the signed-in user
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [uploadId, uploadUrl, expiresAt]
+                properties:
+                  uploadId: { type: string, format: uuid }
+                  uploadUrl: { type: string, format: uri }
+                  expiresAt: { type: string, format: date-time }
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+  /v1/spending/summary:
+    get:
+      summary: Monthly totals for the signed-in user's receipts
+      description: Each currency has a separate total; currencies are never added together.
+      parameters:
+        - {
+            name: month,
+            in: query,
+            required: true,
+            schema: { type: string, pattern: '^\d{4}-(0[1-9]|1[0-2])$' },
+          }
+        - {
+            name: categoryId,
+            in: query,
+            schema: { type: string, format: uuid },
+          }
+        - {
+            name: currency,
+            in: query,
+            schema: { $ref: "#/components/schemas/Currency" },
+          }
+      responses:
+        "200":
+          description: Monthly totals grouped by currency and category
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [month, currencies]
+                properties:
+                  month: { type: string, pattern: '^\d{4}-(0[1-9]|1[0-2])$' }
+                  currencies:
+                    type: array
+                    items:
+                      type: object
+                      required: [currency, total, receiptCount, categories]
+                      properties:
+                        currency: { $ref: "#/components/schemas/Currency" }
+                        total: { $ref: "#/components/schemas/Money" }
+                        receiptCount: { type: integer, minimum: 0 }
+                        categories:
+                          type: array
+                          items:
+                            type: object
+                            required: [categoryId, total, receiptCount]
+                            properties:
+                              categoryId: { type: string, format: uuid }
+                              total: { $ref: "#/components/schemas/Money" }
+                              receiptCount: { type: integer, minimum: 0 }
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Supabase Auth access token verified against the project's asymmetric JWKS.
+  schemas:
+    Money: { type: string, pattern: '^(0|[1-9]\d*)\.\d{2}$', example: "12.50" }
+    Currency: { type: string, pattern: "^[A-Z]{3}$", example: EUR }
+    User:
+      type: object
+      required: [id, email, createdAt, updatedAt]
+      properties:
+        id: { type: string, format: uuid }
+        email: { type: string, format: email }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    Category:
+      type: object
+      required: [id, name]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        color: { type: [string, "null"] }
+        icon: { type: [string, "null"] }
+    ReceiptInput:
+      type: object
+      required: [merchant, purchaseDate, total, currency, categoryId]
+      properties:
+        merchant: { type: string, minLength: 1, maxLength: 200 }
+        purchaseDate: { type: string, format: date }
+        total: { $ref: "#/components/schemas/Money" }
+        currency: { $ref: "#/components/schemas/Currency" }
+        categoryId: { type: string, format: uuid }
+        notes: { type: [string, "null"], maxLength: 2000 }
+        subtotal:
+          { anyOf: [{ $ref: "#/components/schemas/Money" }, { type: "null" }] }
+        tax:
+          { anyOf: [{ $ref: "#/components/schemas/Money" }, { type: "null" }] }
+        imageUploadId: { type: [string, "null"], format: uuid }
+    ReceiptPatch:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        merchant: { type: string, minLength: 1, maxLength: 200 }
+        purchaseDate: { type: string, format: date }
+        total: { $ref: "#/components/schemas/Money" }
+        currency: { $ref: "#/components/schemas/Currency" }
+        categoryId: { type: string, format: uuid }
+        notes: { type: [string, "null"], maxLength: 2000 }
+        subtotal:
+          { anyOf: [{ $ref: "#/components/schemas/Money" }, { type: "null" }] }
+        tax:
+          { anyOf: [{ $ref: "#/components/schemas/Money" }, { type: "null" }] }
+        imageUploadId: { type: [string, "null"], format: uuid }
+    Receipt:
+      allOf:
+        - { $ref: "#/components/schemas/ReceiptInput" }
+        - type: object
+          required: [id, createdAt, updatedAt]
+          properties:
+            id: { type: string, format: uuid }
+            createdAt: { type: string, format: date-time }
+            updatedAt: { type: string, format: date-time }
+            imageUrl:
+              {
+                type: [string, "null"],
+                format: uri,
+                description: Short-lived authorized viewing URL,
+              }
+    ApiError:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code: { type: string, example: VALIDATION_ERROR }
+            message: { type: string }
+  responses:
+    ValidationError:
+      description: Invalid input
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ApiError" }
+    Unauthorized:
+      description: Missing or invalid access token
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ApiError" }
+    NotFound:
+      description: Receipt does not exist or is not owned by this user
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ApiError" }
