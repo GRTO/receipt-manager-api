@@ -3,4 +3,3 @@ dist/
 .env
 coverage/
 tmp/
-package-lock.json
