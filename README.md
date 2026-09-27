@@ -6,24 +6,29 @@ Standalone Node.js API for the Receipt Manager Expo app. The server is written i
 
 - Node.js 24 or newer
 - npm
+- Docker with Compose for local PostgreSQL
 
 ## Run locally
 
 ```bash
 npm install
+docker compose up -d postgres
+$env:DATABASE_URL = "postgresql://receipts:receipts_dev@localhost:5432/receipts"
+npm run db:migrate
 npm run dev
 ```
 
-The API listens on `http://127.0.0.1:3000` by default. `GET /health` returns `{ "status": "ok" }` without authentication and can be used as a deployment liveness check. It currently has no external dependencies to check; add database and storage readiness checks when those integrations are implemented. The server does not automatically load `.env`; provide variables through your process manager or shell. `.env.example` lists them.
+These environment assignment examples use PowerShell. The API listens on `http://127.0.0.1:3000` by default. `GET /health` returns `{ "status": "ok" }` without authentication and remains a liveness check; it does not query PostgreSQL yet. The server does not automatically load `.env`; provide variables through your process manager or shell. `.env.example` lists them.
 
-| Variable           | Purpose                                                                | Required now |
-| ------------------ | ---------------------------------------------------------------------- | ------------ |
-| `HOST`             | Listen address (default `127.0.0.1`; use `0.0.0.0` in a container)     | No           |
-| `PORT`             | Listen port (default `3000`)                                           | No           |
-| `DATABASE_URL`     | PostgreSQL connection URL for Step 3                                   | No           |
-| `SUPABASE_URL`     | Supabase project URL; used to derive JWT issuer and JWKS URL in Step 4 | No           |
-| `STORAGE_ENDPOINT` | Private object storage endpoint for Step 6                             | No           |
-| `STORAGE_BUCKET`   | Private image bucket for Step 6                                        | No           |
+| Variable            | Purpose                                                                | Required now |
+| ------------------- | ---------------------------------------------------------------------- | ------------ |
+| `HOST`              | Listen address (default `127.0.0.1`; use `0.0.0.0` in a container)     | No           |
+| `PORT`              | Listen port (default `3000`)                                           | No           |
+| `DATABASE_URL`      | PostgreSQL connection URL for migrations and future receipt routes     | Migrations   |
+| `TEST_DATABASE_URL` | Dedicated `receipt_manager_test` database for integration tests        | DB tests     |
+| `SUPABASE_URL`      | Supabase project URL; used to derive JWT issuer and JWKS URL in Step 4 | No           |
+| `STORAGE_ENDPOINT`  | Private object storage endpoint for Step 6                             | No           |
+| `STORAGE_BUCKET`    | Private image bucket for Step 6                                        | No           |
 
 Configured URLs, ports, and bucket names are validated at startup. Future integrations must require their own settings when enabled. Keep database credentials and storage secrets on the server; never use a Supabase service-role key in the Expo app.
 
@@ -35,7 +40,22 @@ npm start
 npm run check
 ```
 
-`npm run check` runs typecheck, lint, format verification, and tests. CI runs the same check on Node 24 using the committed npm lockfile.
+`npm run check` runs typecheck, lint, format verification, and tests. CI runs the same check on Node 24 with PostgreSQL using the committed npm lockfile.
+
+## PostgreSQL and migrations
+
+The database layer uses [Kysely](https://kysely.dev/docs/getting-started) with `pg` and Kysely's [migration runner](https://kysely.dev/docs/migrations). Migrations are compiled from `src/db/migrations` and applied explicitly by `npm run db:migrate`; app startup does not mutate the schema. `npm run db:rollback` reverses one migration. Local Compose creates both `receipts` and the dedicated `receipt_manager_test` database on first startup.
+
+For local database tests:
+
+```powershell
+$env:TEST_DATABASE_URL = "postgresql://receipts:receipts_dev@localhost:5432/receipt_manager_test"
+npm run test:db
+```
+
+`npm test` also runs the database test when `TEST_DATABASE_URL` is set; otherwise it skips that integration test. The test migrates down and up, so keep this URL pointed only at the dedicated test database. To reset all local development and test data, run `docker compose down -v`, then `docker compose up -d postgres` and `npm run db:migrate`. This deletes the Compose PostgreSQL volume.
+
+Amounts use PostgreSQL `numeric(18,2)` and decimal strings such as `"12.50"` on the API wire. The `pg` driver returns numeric values as strings, so no floating point conversion is required. EUR is the initial supported currency and the default for users and receipts. Currency fields reference the `currencies` table; add supported ISO 4217 codes through a later migration before accepting them at the API. Totals must be grouped by currency. Categories have stable UUIDs plus the frontend's existing slugs; Step 7 must map the frontend's slug IDs to API UUIDs.
 
 ## First-release contract
 
@@ -43,6 +63,6 @@ The planned `/v1` routes and shared error format are in [openapi.yaml](openapi.y
 
 ## Current implementation
 
-This repository currently provides the server foundation, configuration validation, a shared error format, and a tested health route. It has no receipt data, authentication, database, image storage, or OCR yet. The [frontend plan](../receipt-manager/README.md) describes the implementation sequence.
+This repository provides the server foundation, configuration validation, a shared error format, a tested health route, and PostgreSQL schema/migrations. It has no receipt routes, authentication, image storage, or OCR yet. The [frontend plan](../receipt-manager/README.md) describes the implementation sequence.
 
-Next, add PostgreSQL migrations, then authentication and receipt routes against the OpenAPI contract.
+Next, add authentication and receipt routes against the OpenAPI contract.

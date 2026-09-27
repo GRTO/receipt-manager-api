@@ -234,8 +234,15 @@ components:
       bearerFormat: JWT
       description: Supabase Auth access token verified against the project's asymmetric JWKS.
   schemas:
-    Money: { type: string, pattern: '^(0|[1-9]\d*)\.\d{2}$', example: "12.50" }
-    Currency: { type: string, pattern: "^[A-Z]{3}$", example: EUR }
+    Money:
+      { type: string, pattern: '^(0|[1-9]\d{0,15})\.\d{2}$', example: "12.50" }
+    Currency:
+      type: string
+      pattern: "^[A-Z]{3}$"
+      example: EUR
+      description: >-
+        Supported ISO 4217 code. EUR is the initial supported currency; the API
+        rejects codes not present in the currencies table.
     User:
       type: object
       required: [id, email, createdAt, updatedAt]
@@ -246,9 +253,14 @@ components:
         updatedAt: { type: string, format: date-time }
     Category:
       type: object
-      required: [id, name]
+      required: [id, slug, name]
       properties:
         id: { type: string, format: uuid }
+        slug:
+          {
+            type: string,
+            description: Stable key matching the frontend demo categories,
+          }
         name: { type: string }
         color: { type: [string, "null"] }
         icon: { type: [string, "null"] }
