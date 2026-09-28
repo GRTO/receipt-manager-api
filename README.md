@@ -14,21 +14,37 @@ Standalone Node.js API for the Receipt Manager Expo app. The server is written i
 npm install
 docker compose up -d postgres
 $env:DATABASE_URL = "postgresql://receipts:receipts_dev@localhost:5432/receipts"
+$env:SUPABASE_URL = "https://your-project.supabase.co"
 npm run db:migrate
 npm run dev
 ```
 
-These environment assignment examples use PowerShell. The API listens on `http://127.0.0.1:3000` by default. `GET /health` returns `{ "status": "ok" }` without authentication and remains a liveness check; it does not query PostgreSQL yet. The server does not automatically load `.env`; provide variables through your process manager or shell. `.env.example` lists them.
+These environment assignment examples use PowerShell. The commands install the
+API dependencies, start local PostgreSQL, apply the database schema, and start
+the backend. The API listens on `http://127.0.0.1:3000` by default. Before
+moving to Step 4, confirm it is running by opening
+`http://127.0.0.1:3000/health`; it should return `{ "status": "ok" }`.
 
-| Variable            | Purpose                                                                | Required now |
-| ------------------- | ---------------------------------------------------------------------- | ------------ |
-| `HOST`              | Listen address (default `127.0.0.1`; use `0.0.0.0` in a container)     | No           |
-| `PORT`              | Listen port (default `3000`)                                           | No           |
-| `DATABASE_URL`      | PostgreSQL connection URL for migrations and future receipt routes     | Migrations   |
-| `TEST_DATABASE_URL` | Dedicated `receipt_manager_test` database for integration tests        | DB tests     |
-| `SUPABASE_URL`      | Supabase project URL; used to derive JWT issuer and JWKS URL in Step 4 | No           |
-| `STORAGE_ENDPOINT`  | Private object storage endpoint for Step 6                             | No           |
-| `STORAGE_BUCKET`    | Private image bucket for Step 6                                        | No           |
+The server does not automatically load `.env`; provide variables through your
+process manager or shell. `.env.example` lists them.
+
+Set `SUPABASE_URL` to your Supabase project's URL before starting the API.
+Configure email one-time passcodes in Supabase Auth and activate an asymmetric
+JWT signing key (ES256 or RS256). The project JWKS must publish its public key
+at `/auth/v1/.well-known/jwks.json`; legacy HS256 tokens are rejected. The
+Expo sign-in flow is planned for Step 7. Until then, obtain a Supabase Auth
+access token and call `GET /v1/me` with `Authorization: Bearer <token>` to
+check authentication. The API creates a local user on the first valid request.
+
+| Variable            | Purpose                                                            | Required now |
+| ------------------- | ------------------------------------------------------------------ | ------------ |
+| `HOST`              | Listen address (default `127.0.0.1`; use `0.0.0.0` in a container) | No           |
+| `PORT`              | Listen port (default `3000`)                                       | No           |
+| `DATABASE_URL`      | PostgreSQL connection URL for migrations and user profiles         | Yes          |
+| `TEST_DATABASE_URL` | Dedicated `receipt_manager_test` database for integration tests    | DB tests     |
+| `SUPABASE_URL`      | Supabase project URL; used to derive JWT issuer and JWKS URL       | Yes          |
+| `STORAGE_ENDPOINT`  | Private object storage endpoint for Step 6                         | No           |
+| `STORAGE_BUCKET`    | Private image bucket for Step 6                                    | No           |
 
 Configured URLs, ports, and bucket names are validated at startup. Future integrations must require their own settings when enabled. Keep database credentials and storage secrets on the server; never use a Supabase service-role key in the Expo app.
 
@@ -63,6 +79,6 @@ The planned `/v1` routes and shared error format are in [openapi.yaml](openapi.y
 
 ## Current implementation
 
-This repository provides the server foundation, configuration validation, a shared error format, a tested health route, and PostgreSQL schema/migrations. It has no receipt routes, authentication, image storage, or OCR yet. The [frontend plan](../receipt-manager/README.md) describes the implementation sequence.
+This repository provides the server foundation, configuration validation, a shared error format, a tested health route, PostgreSQL schema/migrations, Supabase JWT verification, and `GET /v1/me`. It has no receipt routes, image storage, or OCR yet. The [frontend plan](../receipt-manager/README.md) describes the implementation sequence.
 
-Next, add authentication and receipt routes against the OpenAPI contract.
+Next, add owner-scoped receipt routes against the OpenAPI contract.

@@ -3,6 +3,7 @@ import { test } from "node:test";
 
 import { buildApp } from "./app.js";
 import { loadConfig } from "./config.js";
+import { createDatabase } from "./db/database.js";
 
 test("GET /health responds successfully", async () => {
   const app = buildApp();
@@ -25,6 +26,33 @@ test("missing routes use the shared error shape", async () => {
     });
   } finally {
     await app.close();
+  }
+});
+
+test("/v1/me rejects missing and invalid bearer tokens", async () => {
+  const database = createDatabase("postgresql://localhost/unused");
+  const app = buildApp({
+    database,
+    verifyToken: async () => {
+      throw new Error("Invalid token");
+    },
+  });
+  app.get("/v1/protected", async () => ({ exposed: true }));
+  try {
+    for (const url of ["/v1/me", "/v1/protected"]) {
+      for (const authorization of [undefined, "Basic abc", "Bearer invalid"]) {
+        const response = await app.inject({
+          method: "GET",
+          url,
+          headers: authorization ? { authorization } : {},
+        });
+        assert.equal(response.statusCode, 401);
+        assert.equal(response.json().error.code, "UNAUTHORIZED");
+      }
+    }
+  } finally {
+    await app.close();
+    await database.destroy();
   }
 });
 

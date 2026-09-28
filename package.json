@@ -11,7 +11,7 @@
     "build": "tsc -p tsconfig.json",
     "start": "node dist/server.js",
     "typecheck": "tsc --noEmit",
-    "test": "npm run build && node --test dist/app.test.js dist/db/database.test.js",
+    "test": "npm run build && node --test dist/app.test.js dist/auth.test.js dist/db/database.test.js",
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
@@ -22,6 +22,7 @@
   },
   "dependencies": {
     "fastify": "^5.6.0",
+    "jose": "^6.2.12",
     "kysely": "^0.29.6",
     "pg": "^8.16.3"
   },

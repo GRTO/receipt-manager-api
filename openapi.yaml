@@ -3,8 +3,8 @@ info:
   title: Receipt Manager API
   version: 0.1.0
   description: >-
-    First-release contract for personal receipts. Only /health is implemented today;
-    the /v1 routes are the contract for Steps 3-8. Amounts are decimal strings with
+    First-release contract for personal receipts. /health and /v1/me are implemented;
+    the remaining /v1 routes are the contract for Steps 5-8. Amounts are decimal strings with
     two fractional digits, and dates are calendar dates in YYYY-MM-DD form.
 servers:
   - url: http://127.0.0.1:3000
@@ -245,10 +245,11 @@ components:
         rejects codes not present in the currencies table.
     User:
       type: object
-      required: [id, email, createdAt, updatedAt]
+      required: [id, email, preferredCurrency, createdAt, updatedAt]
       properties:
         id: { type: string, format: uuid }
         email: { type: string, format: email }
+        preferredCurrency: { $ref: "#/components/schemas/Currency" }
         createdAt: { type: string, format: date-time }
         updatedAt: { type: string, format: date-time }
     Category:

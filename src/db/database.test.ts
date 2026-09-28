@@ -4,6 +4,7 @@ import { test } from "node:test";
 
 import { sql } from "kysely";
 
+import { buildApp } from "../app.js";
 import { createMigrator } from "./migrate.js";
 
 const testUrl = process.env.TEST_DATABASE_URL;
@@ -32,16 +33,47 @@ test(
         1,
       );
 
+      const subject = randomUUID();
       const user = await db
         .insertInto("users")
         .values({
-          auth_subject: randomUUID(),
+          auth_subject: subject,
           email: "test@example.com",
           preferred_currency: "EUR",
         })
         .returning(["id", "preferred_currency"])
         .executeTakeFirstOrThrow();
       assert.equal(user.preferred_currency, "EUR");
+      const app = buildApp({
+        database: db,
+        verifyToken: async (token) => {
+          if (token === "first")
+            return { subject, email: "updated@example.com" };
+          if (token === "second")
+            return { subject: randomUUID(), email: "second@example.com" };
+          throw new Error("Invalid token");
+        },
+      });
+      try {
+        const first = await app.inject({
+          method: "GET",
+          url: "/v1/me",
+          headers: { authorization: "Bearer first" },
+        });
+        assert.equal(first.statusCode, 200);
+        assert.equal(first.json().id, user.id);
+        assert.equal(first.json().email, "updated@example.com");
+        assert.equal(first.json().preferredCurrency, "EUR");
+        const second = await app.inject({
+          method: "GET",
+          url: "/v1/me",
+          headers: { authorization: "Bearer second" },
+        });
+        assert.equal(second.statusCode, 200);
+        assert.notEqual(second.json().id, user.id);
+      } finally {
+        await app.close();
+      }
       const categoryId = categories.find(
         (category) => category.slug === "groceries",
       )?.id;

@@ -1,6 +1,15 @@
 import Fastify from "fastify";
+import type { Kysely } from "kysely";
 
-export function buildApp() {
+import type { TokenVerifier } from "./auth.js";
+import type { Database } from "./db/database.js";
+
+interface AppOptions {
+  database?: Kysely<Database>;
+  verifyToken?: TokenVerifier;
+}
+
+export function buildApp(options: AppOptions = {}) {
   const app = Fastify({ logger: true });
 
   app.setErrorHandler((error, _request, reply) => {
@@ -48,5 +57,84 @@ export function buildApp() {
     async () => ({ status: "ok" }),
   );
 
+  app.addHook("onRequest", async (request, reply) => {
+    if (request.url !== "/v1" && !request.url.startsWith("/v1/")) return;
+    if (!options.database || !options.verifyToken) {
+      return reply.status(503).send({
+        error: {
+          code: "SERVICE_UNAVAILABLE",
+          message: "Authentication is not configured",
+        },
+      });
+    }
+
+    const authorization = request.headers.authorization;
+    const match = /^Bearer ([^\s]+)$/i.exec(authorization ?? "");
+    if (!match?.[1]) {
+      return reply.status(401).send({
+        error: {
+          code: "UNAUTHORIZED",
+          message: "A valid bearer token is required",
+        },
+      });
+    }
+
+    let identity;
+    try {
+      identity = await options.verifyToken(match[1]);
+    } catch {
+      return reply.status(401).send({
+        error: {
+          code: "UNAUTHORIZED",
+          message: "A valid bearer token is required",
+        },
+      });
+    }
+
+    const user = await options.database
+      .insertInto("users")
+      .values({
+        auth_subject: identity.subject,
+        email: identity.email,
+        preferred_currency: "EUR",
+      })
+      .onConflict((conflict) =>
+        conflict.column("auth_subject").doUpdateSet({
+          email: identity.email,
+          updated_at: new Date(),
+        }),
+      )
+      .returning([
+        "id",
+        "email",
+        "preferred_currency",
+        "created_at",
+        "updated_at",
+      ])
+      .executeTakeFirstOrThrow();
+
+    request.user = user;
+  });
+
+  app.get("/v1/me", async (request) => ({
+    id: request.user.id,
+    email: request.user.email,
+    preferredCurrency: request.user.preferred_currency,
+    createdAt: request.user.created_at.toISOString(),
+    updatedAt: request.user.updated_at.toISOString(),
+  }));
+
   return app;
+}
+
+declare module "fastify" {
+  interface FastifyRequest {
+    user: {
+      id: string;
+      email: string;
+      preferred_currency: string;
+      created_at: Date;
+      updated_at: Date;
+    };
+  }
 }
