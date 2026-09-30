@@ -73,9 +73,10 @@ test("future integration settings are checked at startup", () => {
     () => loadConfig({ DATABASE_URL: "https://example.com" }),
     /DATABASE_URL must be a valid URL/,
   );
-  assert.throws(
-    () => loadConfig({ STORAGE_BUCKET: "INVALID" }),
-    /STORAGE_BUCKET/,
+  assert.equal(loadConfig({}).imageStorageDir, "./data/images");
+  assert.equal(
+    loadConfig({ IMAGE_STORAGE_DIR: "./private-images" }).imageStorageDir,
+    "./private-images",
   );
   assert.equal(
     loadConfig({ DATABASE_URL: "postgresql://localhost:5432/receipts" })

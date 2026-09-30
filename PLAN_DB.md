@@ -4,7 +4,7 @@ An Expo + TypeScript receipt-management app. The current app uses an in-memory `
 
 ## Resume here
 
-The backend repository exists. Steps 2-5 are implemented. The Step 5 integration suite passed against a temporary local PostgreSQL cluster. Continue with **Step 6: Private receipt images** in the checklist below. The changes are uncommitted for review. Mark each checkbox when its work is complete so this section stays useful across sessions.
+The backend repository exists. Steps 2-6 are implemented. Step 6 uses private local disk storage with no cloud charges; its integration suite passed against local PostgreSQL. Continue with **Step 7: Connect the Expo frontend** in the checklist below. The changes are uncommitted for review. Mark each checkbox when its work is complete so this section stays useful across sessions.
 
 ## Run the frontend
 
@@ -32,7 +32,7 @@ The **separate backend repository** contains a Node.js server written in **TypeS
 ```text
 Expo app  ->  REST API  ->  PostgreSQL
                  |
-                 +------> Private object storage for images
+                 +------> Private local image directory
                  |
                  +------> OCR provider/worker (later phase)
 ```
@@ -43,7 +43,7 @@ Expo app  ->  REST API  ->  PostgreSQL
 | API             | REST, documented with OpenAPI                                                     | Maps directly to the current `ReceiptService` methods and gives the separate repos an explicit contract.                        |
 | Database        | PostgreSQL                                                                        | Relational fit for users, receipts, categories, households, and spending queries. Use migrations committed to the backend repo. |
 | Database access | A TypeScript query layer/ORM with migrations; select one before adding PostgreSQL | Keep schema changes repeatable and database queries typed.                                                                      |
-| Images          | Private object storage, such as an S3-compatible service                          | Store image bytes outside PostgreSQL. Store object keys and metadata in the database.                                           |
+| Images          | Private local file storage                                                        | Zero cloud cost for personal use. Store image bytes outside PostgreSQL and object keys in the database.                         |
 | Authentication  | Provider and sign-in method to be decided                                         | The API must validate identity and authorize every receipt operation.                                                           |
 | OCR             | Optional asynchronous integration after basic receipt flows work                  | OCR output is a suggestion; the user reviews and edits it before saving.                                                        |
 
@@ -74,10 +74,11 @@ Put the API under `/v1`. The exact request and response schemas should be record
 | `POST /v1/receipts`        | Create a receipt from validated, user-reviewed data.                                               |
 | `PATCH /v1/receipts/:id`   | Update an accessible receipt.                                                                      |
 | `DELETE /v1/receipts/:id`  | Delete an accessible receipt and define associated image cleanup.                                  |
-| `POST /v1/uploads`         | Obtain a short-lived, authorized image upload target or upload through the server.                 |
+| `PUT /v1/receipts/:id/image` | Upload or replace an owned receipt's image through the server.                                  |
+| `GET /v1/receipts/:id/image` | View an owned receipt's image through the authenticated API.                                    |
 | `GET /v1/spending/summary` | Return server-calculated totals and category breakdown by month, ownership, and currency.          |
 
-For uploads, validate file type and size, use unique object keys, and keep the storage bucket private. Return short-lived viewing URLs or an authorized image endpoint rather than saving permanent public URLs as the source of truth. A later OCR flow can use `POST /v1/scans` and `GET /v1/scans/:id` to track extraction. The current mock `extractReceipt` method should pass its result into the review form when this is integrated; it is currently discarded by the preview screen.
+For uploads, validate file type and size, use unique object keys, and keep the image directory private. Return an authorized image endpoint rather than saving permanent public URLs as the source of truth. A later OCR flow can use `POST /v1/scans` and `GET /v1/scans/:id` to track extraction. The current mock `extractReceipt` method should pass its result into the review form when this is integrated; it is currently discarded by the preview screen.
 
 Use stable cursor pagination so new receipts do not cause duplicates or gaps while paging. Define common error responses for validation, unauthenticated requests, forbidden access, missing receipts, upload failures, and OCR failures. Never return another user's receipt merely because its ID is known.
 
@@ -135,10 +136,10 @@ Expo OTP user interface is implemented in Step 7.
 
 ### Step 6: Private receipt images
 
-- [ ] Select object storage and implement `POST /v1/uploads` or an equivalent server upload flow.
-- [ ] Check image type and size, assign unique object keys, and keep the bucket private.
-- [ ] Save object keys in receipts; provide authorized, short-lived image viewing access and cleanup on deletion.
-- [ ] Test upload and viewing permissions, invalid files, and deletion behavior.
+- [x] Select private local file storage and implement `PUT /v1/receipts/:id/image` as the server upload flow. No cloud storage account or payment is needed.
+- [x] Check image type and size, assign unique object keys, and keep the image directory private.
+- [x] Save object keys in receipts; provide authorized image viewing access and cleanup on deletion.
+- [x] Test upload and viewing permissions, invalid files, replacement, and deletion behavior.
 
 ### Step 7: Connect the Expo frontend
 

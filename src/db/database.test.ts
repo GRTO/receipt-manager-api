@@ -6,6 +6,7 @@ import { sql } from "kysely";
 
 import { buildApp } from "../app.js";
 import { createMigrator } from "./migrate.js";
+import { MAX_IMAGE_BYTES, type ImageStorage } from "../image-storage.js";
 
 const testUrl = process.env.TEST_DATABASE_URL;
 
@@ -47,8 +48,25 @@ test(
         .returning(["id", "preferred_currency"])
         .executeTakeFirstOrThrow();
       assert.equal(user.preferred_currency, "EUR");
+      const images = new Map<string, Buffer>();
+      const imageStorage: ImageStorage = {
+        async put(owner, bytes, type) {
+          const key = `${owner}/${randomUUID()}.${type === "image/png" ? "png" : type === "image/jpeg" ? "jpg" : "webp"}`;
+          images.set(key, bytes);
+          return key;
+        },
+        async get(key) {
+          const bytes = images.get(key);
+          if (!bytes) throw new Error("Missing image");
+          return bytes;
+        },
+        async delete(key) {
+          images.delete(key);
+        },
+      };
       const app = buildApp({
         database: db,
+        imageStorage,
         verifyToken: async (token) => {
           if (token === "first")
             return { subject, email: "updated@example.com" };
@@ -122,6 +140,79 @@ test(
         assert.equal(firstReceipt.json().total, "12.50");
         assert.equal(firstReceipt.json().categoryId, groceries);
         assert.equal(firstReceipt.json().imageUrl, null);
+        const imageUrl = `/v1/receipts/${firstReceipt.json().id}/image`;
+        const png = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10, 1]);
+        const upload = (
+          payload: Buffer,
+          headers = auth,
+          contentType = "image/png",
+        ) =>
+          app.inject({
+            method: "PUT",
+            url: imageUrl,
+            headers: { ...headers, "content-type": contentType },
+            payload,
+          });
+        assert.equal(
+          (await upload(png, { authorization: "Bearer second" })).statusCode,
+          404,
+        );
+        assert.equal(
+          (await upload(Buffer.from("not an image"))).statusCode,
+          400,
+        );
+        assert.equal((await upload(png, auth, "image/jpeg")).statusCode, 400);
+        assert.equal(
+          (await upload(Buffer.alloc(MAX_IMAGE_BYTES + 1))).statusCode,
+          413,
+        );
+        assert.equal(images.size, 0);
+        const uploaded = await upload(png);
+        assert.equal(uploaded.statusCode, 200);
+        assert.equal(uploaded.json().imageUrl, imageUrl);
+        assert.equal(images.size, 1);
+        const imageKey = (
+          await db
+            .selectFrom("receipts")
+            .select("image_object_key")
+            .where("id", "=", firstReceipt.json().id)
+            .executeTakeFirstOrThrow()
+        ).image_object_key;
+        assert.ok(imageKey);
+        assert.ok(imageKey.startsWith(`${user.id}/`));
+        assert.equal(
+          (
+            await app.inject({
+              method: "GET",
+              url: imageUrl,
+              headers: { authorization: "Bearer second" },
+            })
+          ).statusCode,
+          404,
+        );
+        assert.equal(
+          (await app.inject({ method: "GET", url: imageUrl })).statusCode,
+          401,
+        );
+        const viewed = await app.inject({
+          method: "GET",
+          url: imageUrl,
+          headers: auth,
+        });
+        assert.equal(viewed.statusCode, 200);
+        assert.equal(viewed.headers["content-type"], "image/png");
+        assert.deepEqual(viewed.rawPayload, png);
+        const jpeg = Buffer.from([0xff, 0xd8, 0xff, 0xd9]);
+        assert.equal((await upload(jpeg, auth, "image/jpeg")).statusCode, 200);
+        assert.equal(images.size, 1);
+        assert.equal(images.has(imageKey), false);
+        const replaced = await app.inject({
+          method: "GET",
+          url: imageUrl,
+          headers: auth,
+        });
+        assert.equal(replaced.headers["content-type"], "image/jpeg");
+        assert.deepEqual(replaced.rawPayload, jpeg);
         assert.equal(
           (
             await db
@@ -289,6 +380,12 @@ test(
           headers: auth,
         });
         assert.equal(deleted.statusCode, 204);
+        assert.equal(images.size, 0);
+        assert.equal(
+          (await app.inject({ method: "GET", url: imageUrl, headers: auth }))
+            .statusCode,
+          404,
+        );
         assert.equal(
           (
             await app.inject({

@@ -3,8 +3,7 @@ export interface Config {
   port: number;
   databaseUrl?: string;
   supabaseUrl?: string;
-  storageBucket?: string;
-  storageEndpoint?: string;
+  imageStorageDir: string;
 }
 
 function optionalUrl(
@@ -40,22 +39,16 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
 
   const databaseUrl = optionalUrl(env.DATABASE_URL, "DATABASE_URL");
   const supabaseUrl = optionalUrl(env.SUPABASE_URL, "SUPABASE_URL");
-  const storageEndpoint = optionalUrl(env.STORAGE_ENDPOINT, "STORAGE_ENDPOINT");
-  const storageBucket = env.STORAGE_BUCKET?.trim() || undefined;
+  const imageStorageDir = env.IMAGE_STORAGE_DIR?.trim() || "./data/images";
 
   if (supabaseUrl && new URL(supabaseUrl).protocol !== "https:") {
     throw new Error("SUPABASE_URL must use HTTPS");
   }
-  if (storageBucket && !/^[a-z0-9][a-z0-9.-]{2,62}$/.test(storageBucket)) {
-    throw new Error("STORAGE_BUCKET must be a valid bucket name");
-  }
-
   return {
     host,
     port,
     databaseUrl,
     supabaseUrl,
-    storageBucket,
-    storageEndpoint,
+    imageStorageDir,
   };
 }

@@ -4,7 +4,7 @@ info:
   version: 0.1.0
   description: >-
     First-release contract for personal receipts. /health, /v1/me, /v1/categories,
-    and /v1/receipts are implemented; uploads and spending summaries follow in Steps 6-8. Amounts are decimal strings with
+    and /v1/receipts, including private receipt images, are implemented; spending summaries follow in Step 8. Amounts are decimal strings with
     two fractional digits, and dates are calendar dates in YYYY-MM-DD form.
 servers:
   - url: http://127.0.0.1:3000
@@ -159,35 +159,48 @@ paths:
         "400": { $ref: "#/components/responses/ValidationError" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "404": { $ref: "#/components/responses/NotFound" }
-  /v1/uploads:
-    post:
-      summary: Request a short-lived target for a private receipt image
+  /v1/receipts/{id}/image:
+    parameters:
+      - {
+          name: id,
+          in: path,
+          required: true,
+          schema: { type: string, format: uuid },
+        }
+    put:
+      summary: Upload or replace an image on an owned receipt
+      description: >-
+        The server checks the actual image signature and Content-Type, then stores
+        the bytes in a private local directory. Maximum size is 10 MiB. Create
+        the receipt first, then upload its image.
       requestBody:
         required: true
         content:
-          application/json:
-            schema:
-              type: object
-              additionalProperties: false
-              required: [contentType, sizeBytes]
-              properties:
-                contentType:
-                  { type: string, enum: [image/jpeg, image/png, image/webp] }
-                sizeBytes: { type: integer, minimum: 1, maximum: 10485760 }
+          image/jpeg: { schema: { type: string, format: binary } }
+          image/png: { schema: { type: string, format: binary } }
+          image/webp: { schema: { type: string, format: binary } }
       responses:
-        "201":
-          description: Upload target bound to the signed-in user
+        "200":
+          description: Updated receipt
           content:
             application/json:
-              schema:
-                type: object
-                required: [uploadId, uploadUrl, expiresAt]
-                properties:
-                  uploadId: { type: string, format: uuid }
-                  uploadUrl: { type: string, format: uri }
-                  expiresAt: { type: string, format: date-time }
+              schema: { $ref: "#/components/schemas/Receipt" }
         "400": { $ref: "#/components/responses/ValidationError" }
         "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "413": { $ref: "#/components/responses/ValidationError" }
+    get:
+      summary: View an image on an owned receipt
+      description: Requires a bearer token and returns private, non-cacheable image bytes.
+      responses:
+        "200":
+          description: Image bytes
+          content:
+            image/jpeg: { schema: { type: string, format: binary } }
+            image/png: { schema: { type: string, format: binary } }
+            image/webp: { schema: { type: string, format: binary } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
   /v1/spending/summary:
     get:
       summary: Monthly totals for the signed-in user's receipts
@@ -340,8 +353,7 @@ components:
         imageUrl:
           {
             type: [string, "null"],
-            format: uri,
-            description: Short-lived authorized viewing URL when an image exists,
+            description: Relative authenticated image endpoint when an image exists; send a bearer token to fetch it,
           }
         createdAt: { type: string, format: date-time }
         updatedAt: { type: string, format: date-time }

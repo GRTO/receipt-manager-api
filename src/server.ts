@@ -2,6 +2,7 @@ import { buildApp } from "./app.js";
 import { createTokenVerifier } from "./auth.js";
 import { loadConfig } from "./config.js";
 import { createDatabase } from "./db/database.js";
+import { LocalImageStorage } from "./image-storage.js";
 
 const config = loadConfig();
 if (!config.databaseUrl || !config.supabaseUrl) {
@@ -14,6 +15,7 @@ const database = createDatabase(config.databaseUrl);
 const app = buildApp({
   database,
   verifyToken: createTokenVerifier(config.supabaseUrl),
+  imageStorage: new LocalImageStorage(config.imageStorageDir),
 });
 app.addHook("onClose", async () => database.destroy());
 

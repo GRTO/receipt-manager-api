@@ -42,10 +42,9 @@ check authentication. The API creates a local user on the first valid request.
 | `DATABASE_URL`      | PostgreSQL connection URL for migrations and user profiles         | Yes          |
 | `TEST_DATABASE_URL` | Dedicated `receipt_manager_test` database for integration tests    | DB tests     |
 | `SUPABASE_URL`      | Supabase project URL; used to derive JWT issuer and JWKS URL       | Yes          |
-| `STORAGE_ENDPOINT`  | Private object storage endpoint for Step 6                         | No           |
-| `STORAGE_BUCKET`    | Private image bucket for Step 6                                    | No           |
+| `IMAGE_STORAGE_DIR` | Private local receipt images (default `./data/images`)             | No           |
 
-Configured URLs, ports, and bucket names are validated at startup. Future integrations must require their own settings when enabled. Keep database credentials and storage secrets on the server; never use a Supabase service-role key in the Expo app.
+Configured URLs and ports are validated at startup. Keep database credentials on the server; never use a Supabase service-role key in the Expo app.
 
 ```bash
 npm run typecheck
@@ -74,10 +73,16 @@ Amounts use PostgreSQL `numeric(18,2)` and decimal strings such as `"12.50"` on 
 
 ## First-release contract
 
-The `/v1` contract and shared error format are in [openapi.yaml](openapi.yaml). Amounts are decimal strings with two fractional digits; the backend stores them exactly and the Expo app must convert explicitly from its current JavaScript numbers. Receipt access is personal-only. The API derives ownership from a verified Supabase access token and rejects owner IDs in request bodies. Search and filters apply only to the signed-in user's receipts. The list accepts `search`, `month`, `categoryId`, `sort`, `limit`, and `cursor`; sort values are `date_desc` (default), `date_asc`, `total_desc`, and `total_asc`. Use `nextCursor` with the same filters and sort order for the next page. Image uploads and spending summaries are part of later steps.
+The `/v1` contract and shared error format are in [openapi.yaml](openapi.yaml). Amounts are decimal strings with two fractional digits; the backend stores them exactly and the Expo app must convert explicitly from its current JavaScript numbers. Receipt access is personal-only. The API derives ownership from a verified Supabase access token and rejects owner IDs in request bodies. Search and filters apply only to the signed-in user's receipts. The list accepts `search`, `month`, `categoryId`, `sort`, `limit`, and `cursor`; sort values are `date_desc` (default), `date_asc`, `total_desc`, and `total_asc`. Use `nextCursor` with the same filters and sort order for the next page. Spending summaries are part of Step 8.
+
+## Private receipt images
+
+Create a receipt first, then `PUT` its JPEG, PNG, or WebP bytes to `/v1/receipts/{id}/image` with the matching `Content-Type` and bearer token. Images may be up to 10 MiB. The server checks the file signature, generates a unique key, and stores the bytes under `IMAGE_STORAGE_DIR`. The receipt stores only the key. `imageUrl` is a relative, authenticated API path; fetch it with the same bearer token. Access is checked against the receipt owner. Replacing an image removes the old file, and deleting a receipt removes its file.
+
+The default `./data/images` directory is ignored by Git. Keep it private to the API process and back it up together with PostgreSQL. To avoid paying for cloud storage, this implementation uses local disk and makes no AWS calls. Set `IMAGE_STORAGE_DIR` to a persistent directory when running the API outside this repository. A copy of the database without the image directory will have missing images.
 
 ## Current implementation
 
 This repository provides the server foundation, configuration validation, a shared error format, a tested health route, PostgreSQL schema/migrations, Supabase JWT verification, `GET /v1/me`, categories, and owner-scoped receipt CRUD with filtering and cursor pagination. Calendar dates remain strings through the database layer to avoid timezone shifts. The [frontend plan](../receipt-manager/README.md) describes the implementation sequence.
 
-Next, add private receipt images in Step 6. Receipt create and update currently reject `imageUploadId`; the response uses `imageUrl: null` until image access is implemented.
+Private receipt images are implemented in Step 6. Receipt create and update reject `imageUploadId`; upload to an existing receipt using the image route instead. A receipt without an image returns `imageUrl: null`.

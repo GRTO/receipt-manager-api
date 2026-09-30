@@ -3,11 +3,17 @@ import type { Kysely } from "kysely";
 
 import type { TokenVerifier } from "./auth.js";
 import type { Database } from "./db/database.js";
+import {
+  IMAGE_TYPES,
+  MAX_IMAGE_BYTES,
+  type ImageStorage,
+} from "./image-storage.js";
 import { registerReceiptRoutes } from "./receipts.js";
 
 interface AppOptions {
   database?: Kysely<Database>;
   verifyToken?: TokenVerifier;
+  imageStorage?: ImageStorage;
 }
 
 export function buildApp(options: AppOptions = {}) {
@@ -15,6 +21,14 @@ export function buildApp(options: AppOptions = {}) {
     logger: true,
     ajv: { customOptions: { removeAdditional: false } },
   });
+
+  app.addContentTypeParser(
+    [...IMAGE_TYPES],
+    { parseAs: "buffer", bodyLimit: MAX_IMAGE_BYTES },
+    (_request, body, done) => {
+      done(null, body);
+    },
+  );
 
   app.setErrorHandler((error, _request, reply) => {
     const failure =
@@ -128,7 +142,8 @@ export function buildApp(options: AppOptions = {}) {
     updatedAt: request.user.updated_at.toISOString(),
   }));
 
-  if (options.database) registerReceiptRoutes(app, options.database);
+  if (options.database)
+    registerReceiptRoutes(app, options.database, options.imageStorage);
 
   return app;
 }

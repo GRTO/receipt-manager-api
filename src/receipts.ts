@@ -2,6 +2,12 @@ import type { FastifyInstance } from "fastify";
 import { sql, type Kysely, type Selectable } from "kysely";
 
 import type { Database } from "./db/database.js";
+import {
+  detectImageType,
+  imageTypeFromKey,
+  MAX_IMAGE_BYTES,
+  type ImageStorage,
+} from "./image-storage.js";
 
 type ReceiptRow = Selectable<Database["receipts"]>;
 type Sort = "date_desc" | "date_asc" | "total_desc" | "total_asc";
@@ -83,7 +89,7 @@ function toApi(row: ReceiptRow) {
     notes: row.notes,
     subtotal: row.subtotal,
     tax: row.tax,
-    imageUrl: null,
+    imageUrl: row.image_object_key ? `/v1/receipts/${row.id}/image` : null,
     createdAt: row.created_at.toISOString(),
     updatedAt: row.updated_at.toISOString(),
   };
@@ -239,6 +245,7 @@ async function checkInputTypes(
 export function registerReceiptRoutes(
   app: FastifyInstance,
   db: Kysely<Database>,
+  imageStorage?: ImageStorage,
 ) {
   app.get("/v1/categories", async () => ({
     items: await db
@@ -426,11 +433,139 @@ export function registerReceiptRoutes(
         .deleteFrom("receipts")
         .where("id", "=", request.params.id)
         .where("owner_user_id", "=", request.user.id)
-        .returning("id")
+        .returning(["id", "image_object_key"])
         .executeTakeFirst();
-      return row
-        ? reply.status(204).send()
-        : reply.status(404).send(fail("NOT_FOUND", "Receipt not found"));
+      if (!row)
+        return reply.status(404).send(fail("NOT_FOUND", "Receipt not found"));
+      if (row.image_object_key && imageStorage) {
+        try {
+          await imageStorage.delete(row.image_object_key);
+        } catch (error) {
+          request.log.error(
+            { error, key: row.image_object_key },
+            "Image cleanup failed",
+          );
+        }
+      }
+      return reply.status(204).send();
+    },
+  );
+
+  app.put<{ Params: { id: string }; Body: Buffer }>(
+    "/v1/receipts/:id/image",
+    { schema: { params: idSchema }, bodyLimit: MAX_IMAGE_BYTES },
+    async (request, reply) => {
+      if (!imageStorage)
+        return reply
+          .status(503)
+          .send(fail("SERVICE_UNAVAILABLE", "Image storage is not configured"));
+      const existing = await db
+        .selectFrom("receipts")
+        .select(["id", "image_object_key"])
+        .where("id", "=", request.params.id)
+        .where("owner_user_id", "=", request.user.id)
+        .executeTakeFirst();
+      if (!existing)
+        return reply.status(404).send(fail("NOT_FOUND", "Receipt not found"));
+      const bytes = request.body;
+      const type = Buffer.isBuffer(bytes) ? detectImageType(bytes) : null;
+      if (
+        !type ||
+        bytes.length === 0 ||
+        bytes.length > MAX_IMAGE_BYTES ||
+        request.headers["content-type"]?.split(";")[0]?.trim().toLowerCase() !==
+          type
+      )
+        return reply
+          .status(400)
+          .send(
+            fail(
+              "VALIDATION_ERROR",
+              "Image must be a JPEG, PNG, or WebP file up to 10 MiB with a matching Content-Type",
+            ),
+          );
+      let key: string;
+      try {
+        key = await imageStorage.put(request.user.id, bytes, type);
+      } catch (error) {
+        request.log.error({ error }, "Image upload failed");
+        return reply
+          .status(503)
+          .send(fail("STORAGE_ERROR", "Image upload failed"));
+      }
+      try {
+        const row = await db
+          .updateTable("receipts")
+          .set({ image_object_key: key, updated_at: new Date() })
+          .where("id", "=", request.params.id)
+          .where("owner_user_id", "=", request.user.id)
+          .where(
+            "image_object_key",
+            existing.image_object_key === null ? "is" : "=",
+            existing.image_object_key,
+          )
+          .returningAll()
+          .executeTakeFirst();
+        if (!row) {
+          await imageStorage.delete(key);
+          return reply
+            .status(409)
+            .send(fail("CONFLICT", "Receipt image changed; retry the upload"));
+        }
+        if (existing.image_object_key) {
+          try {
+            await imageStorage.delete(existing.image_object_key);
+          } catch (error) {
+            request.log.error(
+              { error, key: existing.image_object_key },
+              "Old image cleanup failed",
+            );
+          }
+        }
+        return toApi(row);
+      } catch (error) {
+        await imageStorage.delete(key);
+        throw error;
+      }
+    },
+  );
+
+  app.get<{ Params: { id: string } }>(
+    "/v1/receipts/:id/image",
+    { schema: { params: idSchema } },
+    async (request, reply) => {
+      if (!imageStorage)
+        return reply
+          .status(503)
+          .send(fail("SERVICE_UNAVAILABLE", "Image storage is not configured"));
+      const row = await db
+        .selectFrom("receipts")
+        .select("image_object_key")
+        .where("id", "=", request.params.id)
+        .where("owner_user_id", "=", request.user.id)
+        .executeTakeFirst();
+      if (!row?.image_object_key)
+        return reply.status(404).send(fail("NOT_FOUND", "Image not found"));
+      const type = imageTypeFromKey(row.image_object_key);
+      if (!type)
+        return reply
+          .status(500)
+          .send(fail("STORAGE_ERROR", "Invalid stored image"));
+      try {
+        const bytes = await imageStorage.get(row.image_object_key);
+        return reply
+          .header("Cache-Control", "private, no-store")
+          .type(type)
+          .send(bytes);
+      } catch (error) {
+        request.log.error(
+          { error, key: row.image_object_key },
+          "Image read failed",
+        );
+        return reply
+          .status(503)
+          .send(fail("STORAGE_ERROR", "Image is unavailable"));
+      }
     },
   );
 }
