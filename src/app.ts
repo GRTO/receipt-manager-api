@@ -3,6 +3,7 @@ import type { Kysely } from "kysely";
 
 import type { TokenVerifier } from "./auth.js";
 import type { Database } from "./db/database.js";
+import { registerReceiptRoutes } from "./receipts.js";
 
 interface AppOptions {
   database?: Kysely<Database>;
@@ -10,7 +11,10 @@ interface AppOptions {
 }
 
 export function buildApp(options: AppOptions = {}) {
-  const app = Fastify({ logger: true });
+  const app = Fastify({
+    logger: true,
+    ajv: { customOptions: { removeAdditional: false } },
+  });
 
   app.setErrorHandler((error, _request, reply) => {
     const failure =
@@ -123,6 +127,8 @@ export function buildApp(options: AppOptions = {}) {
     createdAt: request.user.created_at.toISOString(),
     updatedAt: request.user.updated_at.toISOString(),
   }));
+
+  if (options.database) registerReceiptRoutes(app, options.database);
 
   return app;
 }

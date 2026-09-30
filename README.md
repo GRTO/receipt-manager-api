@@ -21,8 +21,7 @@ npm run dev
 
 These environment assignment examples use PowerShell. The commands install the
 API dependencies, start local PostgreSQL, apply the database schema, and start
-the backend. The API listens on `http://127.0.0.1:3000` by default. Before
-moving to Step 4, confirm it is running by opening
+the backend. The API listens on `http://127.0.0.1:3000` by default. Confirm it is running by opening
 `http://127.0.0.1:3000/health`; it should return `{ "status": "ok" }`.
 
 The server does not automatically load `.env`; provide variables through your
@@ -75,10 +74,10 @@ Amounts use PostgreSQL `numeric(18,2)` and decimal strings such as `"12.50"` on 
 
 ## First-release contract
 
-The planned `/v1` routes and shared error format are in [openapi.yaml](openapi.yaml). Amounts are decimal strings with two fractional digits; the backend will store them exactly and the Expo app must convert explicitly from its current JavaScript numbers. Receipt access is personal-only. The API will derive ownership from a verified Supabase access token, never from a request body. Search and filters apply only to the signed-in user's receipts. Image uploads and spending summaries are part of later implementation steps.
+The `/v1` contract and shared error format are in [openapi.yaml](openapi.yaml). Amounts are decimal strings with two fractional digits; the backend stores them exactly and the Expo app must convert explicitly from its current JavaScript numbers. Receipt access is personal-only. The API derives ownership from a verified Supabase access token and rejects owner IDs in request bodies. Search and filters apply only to the signed-in user's receipts. The list accepts `search`, `month`, `categoryId`, `sort`, `limit`, and `cursor`; sort values are `date_desc` (default), `date_asc`, `total_desc`, and `total_asc`. Use `nextCursor` with the same filters and sort order for the next page. Image uploads and spending summaries are part of later steps.
 
 ## Current implementation
 
-This repository provides the server foundation, configuration validation, a shared error format, a tested health route, PostgreSQL schema/migrations, Supabase JWT verification, and `GET /v1/me`. It has no receipt routes, image storage, or OCR yet. The [frontend plan](../receipt-manager/README.md) describes the implementation sequence.
+This repository provides the server foundation, configuration validation, a shared error format, a tested health route, PostgreSQL schema/migrations, Supabase JWT verification, `GET /v1/me`, categories, and owner-scoped receipt CRUD with filtering and cursor pagination. Calendar dates remain strings through the database layer to avoid timezone shifts. The [frontend plan](../receipt-manager/README.md) describes the implementation sequence.
 
-Next, add owner-scoped receipt routes against the OpenAPI contract.
+Next, add private receipt images in Step 6. Receipt create and update currently reject `imageUploadId`; the response uses `imageUrl: null` until image access is implemented.

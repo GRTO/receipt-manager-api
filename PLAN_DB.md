@@ -4,7 +4,7 @@ An Expo + TypeScript receipt-management app. The current app uses an in-memory `
 
 ## Resume here
 
-The backend repository exists. Steps 2 and 3 are implemented. Typecheck, lint, format check, and unit tests pass; the PostgreSQL integration test is configured for CI and still needs a local run because Docker Desktop's engine did not start in this session. Continue with **Step 4: Authentication and authorization** in the checklist below. The changes are uncommitted for review. Mark each checkbox when its work is complete so this section stays useful across sessions.
+The backend repository exists. Steps 2-5 are implemented. The Step 5 integration suite passed against a temporary local PostgreSQL cluster. Continue with **Step 6: Private receipt images** in the checklist below. The changes are uncommitted for review. Mark each checkbox when its work is complete so this section stays useful across sessions.
 
 ## Run the frontend
 
@@ -37,15 +37,15 @@ Expo app  ->  REST API  ->  PostgreSQL
                  +------> OCR provider/worker (later phase)
 ```
 
-| Concern | Proposed choice | Reason |
-| --- | --- | --- |
-| Server | Node.js + TypeScript + Fastify | Small HTTP service with TypeScript support and request/response schema validation. |
-| API | REST, documented with OpenAPI | Maps directly to the current `ReceiptService` methods and gives the separate repos an explicit contract. |
-| Database | PostgreSQL | Relational fit for users, receipts, categories, households, and spending queries. Use migrations committed to the backend repo. |
-| Database access | A TypeScript query layer/ORM with migrations; select one before adding PostgreSQL | Keep schema changes repeatable and database queries typed. |
-| Images | Private object storage, such as an S3-compatible service | Store image bytes outside PostgreSQL. Store object keys and metadata in the database. |
-| Authentication | Provider and sign-in method to be decided | The API must validate identity and authorize every receipt operation. |
-| OCR | Optional asynchronous integration after basic receipt flows work | OCR output is a suggestion; the user reviews and edits it before saving. |
+| Concern         | Proposed choice                                                                   | Reason                                                                                                                          |
+| --------------- | --------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| Server          | Node.js + TypeScript + Fastify                                                    | Small HTTP service with TypeScript support and request/response schema validation.                                              |
+| API             | REST, documented with OpenAPI                                                     | Maps directly to the current `ReceiptService` methods and gives the separate repos an explicit contract.                        |
+| Database        | PostgreSQL                                                                        | Relational fit for users, receipts, categories, households, and spending queries. Use migrations committed to the backend repo. |
+| Database access | A TypeScript query layer/ORM with migrations; select one before adding PostgreSQL | Keep schema changes repeatable and database queries typed.                                                                      |
+| Images          | Private object storage, such as an S3-compatible service                          | Store image bytes outside PostgreSQL. Store object keys and metadata in the database.                                           |
+| Authentication  | Provider and sign-in method to be decided                                         | The API must validate identity and authorize every receipt operation.                                                           |
+| OCR             | Optional asynchronous integration after basic receipt flows work                  | OCR output is a suggestion; the user reviews and edits it before saving.                                                        |
 
 A CRM is not needed: this app manages receipts rather than customer relationships. GraphQL is not needed for the initial API. Reconsider it if future clients need substantially different combinations of related data or REST calls become cumbersome.
 
@@ -65,17 +65,17 @@ Use an exact database representation for money, such as `numeric` with a chosen 
 
 Put the API under `/v1`. The exact request and response schemas should be recorded in OpenAPI and checked against the frontend service interface.
 
-| Route | Purpose |
-| --- | --- |
-| `GET /v1/me` | Return the authenticated user and relevant preferences. |
-| `GET /v1/categories` | Return selectable categories. |
-| `GET /v1/receipts` | List accessible receipts with search, month, category, ownership, sort, limit, and cursor filters. |
-| `GET /v1/receipts/:id` | Read one accessible receipt. |
-| `POST /v1/receipts` | Create a receipt from validated, user-reviewed data. |
-| `PATCH /v1/receipts/:id` | Update an accessible receipt. |
-| `DELETE /v1/receipts/:id` | Delete an accessible receipt and define associated image cleanup. |
-| `POST /v1/uploads` | Obtain a short-lived, authorized image upload target or upload through the server. |
-| `GET /v1/spending/summary` | Return server-calculated totals and category breakdown by month, ownership, and currency. |
+| Route                      | Purpose                                                                                            |
+| -------------------------- | -------------------------------------------------------------------------------------------------- |
+| `GET /v1/me`               | Return the authenticated user and relevant preferences.                                            |
+| `GET /v1/categories`       | Return selectable categories.                                                                      |
+| `GET /v1/receipts`         | List accessible receipts with search, month, category, ownership, sort, limit, and cursor filters. |
+| `GET /v1/receipts/:id`     | Read one accessible receipt.                                                                       |
+| `POST /v1/receipts`        | Create a receipt from validated, user-reviewed data.                                               |
+| `PATCH /v1/receipts/:id`   | Update an accessible receipt.                                                                      |
+| `DELETE /v1/receipts/:id`  | Delete an accessible receipt and define associated image cleanup.                                  |
+| `POST /v1/uploads`         | Obtain a short-lived, authorized image upload target or upload through the server.                 |
+| `GET /v1/spending/summary` | Return server-calculated totals and category breakdown by month, ownership, and currency.          |
 
 For uploads, validate file type and size, use unique object keys, and keep the storage bucket private. Return short-lived viewing URLs or an authorized image endpoint rather than saving permanent public URLs as the source of truth. A later OCR flow can use `POST /v1/scans` and `GET /v1/scans/:id` to track extraction. The current mock `extractReceipt` method should pass its result into the review form when this is integrated; it is currently discarded by the preview screen.
 
@@ -124,14 +124,14 @@ Expo OTP user interface is implemented in Step 7.
 - [x] Verify Supabase access tokens using the project's asymmetric JWKS, including issuer, audience, expiry, and subject checks.
 - [x] Add `GET /v1/me` and require authentication for every `/v1` route.
 - [x] Test valid, missing, expired, malformed, and incorrectly signed sessions.
-- [x] Resolve the authenticated user from the verified token; receipt ownership enforcement moves to Step 5 because no receipt routes exist yet.
+- [x] Resolve the authenticated user from the verified token; Step 5 enforces receipt ownership in every query and mutation.
 
 ### Step 5: Receipt API
 
-- [ ] Implement `GET /v1/categories` and receipt create/read/update/delete routes from the API table above. Scope every receipt query and mutation to the authenticated user; ignore client-supplied owner IDs.
-- [ ] Validate merchant, date, category, currency, and amounts on the server; return consistent errors.
-- [ ] Implement search, month/category filters, sorting, limits, and stable cursor pagination. The first-release API returns only the authenticated user's receipts; defer ownership filters until sharing exists.
-- [ ] Test CRUD, filtering, pagination, and the OpenAPI contract against representative requests, including attempts to read, edit, or delete another user's receipt.
+- [x] Implement `GET /v1/categories` and receipt create/read/update/delete routes from the API table above. Scope every receipt query and mutation to the authenticated user; reject client-supplied owner IDs.
+- [x] Validate merchant, date, category, currency, and amounts on the server; return consistent errors.
+- [x] Implement search, month/category filters, sorting, limits, and stable cursor pagination. The first-release API returns only the authenticated user's receipts; defer ownership filters until sharing exists.
+- [x] Test CRUD, filtering, pagination, and representative OpenAPI requests, including attempts to read, edit, or delete another user's receipt.
 
 ### Step 6: Private receipt images
 

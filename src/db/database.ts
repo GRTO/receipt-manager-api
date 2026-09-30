@@ -4,7 +4,7 @@ import {
   type ColumnType,
   type Generated,
 } from "kysely";
-import { Pool } from "pg";
+import { Pool, types } from "pg";
 
 type CreatedAt = ColumnType<Date, undefined, never>;
 type UpdatedAt = ColumnType<Date, undefined, Date | undefined>;
@@ -33,7 +33,7 @@ export interface Database {
     id: Generated<string>;
     owner_user_id: string;
     merchant: string;
-    purchase_date: ColumnType<Date, string, string>;
+    purchase_date: string;
     total: string;
     currency: string;
     category_id: string;
@@ -49,7 +49,15 @@ export interface Database {
 export function createDatabase(databaseUrl: string): Kysely<Database> {
   return new Kysely<Database>({
     dialect: new PostgresDialect({
-      pool: new Pool({ connectionString: databaseUrl }),
+      pool: new Pool({
+        connectionString: databaseUrl,
+        types: {
+          getTypeParser: (oid, format) =>
+            oid === 1082 && format !== "binary"
+              ? (value: string) => value
+              : types.getTypeParser(oid, format),
+        },
+      }),
     }),
   });
 }
