@@ -7,6 +7,7 @@ import { sql } from "kysely";
 import { buildApp } from "../app.js";
 import { createMigrator } from "./migrate.js";
 import { MAX_IMAGE_BYTES, type ImageStorage } from "../image-storage.js";
+import { ScanService } from "../scans.js";
 
 const testUrl = process.env.TEST_DATABASE_URL;
 
@@ -64,9 +65,18 @@ test(
           images.delete(key);
         },
       };
+      let ocrShouldFail = false;
+      const scanService = new ScanService(db, imageStorage, {
+        async recognize() {
+          if (ocrShouldFail) throw new Error("OCR unavailable");
+          return "Mercado da Vila\nData 02/10/2026\nTOTAL A PAGAR 12,50 €";
+        },
+        async close() {},
+      });
       const app = buildApp({
         database: db,
         imageStorage,
+        scanService,
         verifyToken: async (token) => {
           if (token === "first")
             return { subject, email: "updated@example.com" };
@@ -75,6 +85,7 @@ test(
           throw new Error("Invalid token");
         },
       });
+      app.addHook("onClose", async () => scanService.stop());
       try {
         const first = await app.inject({
           method: "GET",
@@ -396,6 +407,108 @@ test(
           ).statusCode,
           404,
         );
+        await scanService.start();
+        const scanPng = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10, 1]);
+        const scanUpload = () =>
+          app.inject({
+            method: "POST",
+            url: "/v1/scans",
+            headers: { ...auth, "content-type": "image/png" },
+            payload: scanPng,
+          });
+        assert.equal(
+          (
+            await app.inject({
+              method: "POST",
+              url: "/v1/scans",
+              headers: { ...auth, "content-type": "image/jpeg" },
+              payload: scanPng,
+            })
+          ).statusCode,
+          400,
+        );
+        const scan = await scanUpload();
+        assert.equal(scan.statusCode, 202);
+        const scanUrl = `/v1/scans/${scan.json().id}`;
+        assert.equal(
+          (
+            await app.inject({
+              method: "GET",
+              url: scanUrl,
+              headers: otherAuth,
+            })
+          ).statusCode,
+          404,
+        );
+        let completed;
+        for (let i = 0; i < 50; i += 1) {
+          completed = await app.inject({
+            method: "GET",
+            url: scanUrl,
+            headers: auth,
+          });
+          if (completed.json().status === "completed") break;
+          await new Promise((resolve) => setTimeout(resolve, 10));
+        }
+        assert.equal(completed?.json().status, "completed");
+        assert.equal(completed?.json().fields.total, "12.50");
+        assert.equal(completed?.json().fields.purchaseDate, "2026-10-02");
+        assert.equal(
+          (
+            await app.inject({
+              method: "POST",
+              url: `${scanUrl}/retry`,
+              headers: auth,
+            })
+          ).statusCode,
+          409,
+        );
+
+        ocrShouldFail = true;
+        const failedScan = await scanUpload();
+        const failedUrl = `/v1/scans/${failedScan.json().id}`;
+        let failed;
+        for (let i = 0; i < 50; i += 1) {
+          failed = await app.inject({
+            method: "GET",
+            url: failedUrl,
+            headers: auth,
+          });
+          if (failed.json().status === "failed") break;
+          await new Promise((resolve) => setTimeout(resolve, 10));
+        }
+        assert.equal(failed?.json().errorCode, "OCR_FAILED");
+        assert.equal(
+          (
+            await app.inject({
+              method: "POST",
+              url: `${failedUrl}/retry`,
+              headers: otherAuth,
+            })
+          ).statusCode,
+          404,
+        );
+        ocrShouldFail = false;
+        assert.equal(
+          (
+            await app.inject({
+              method: "POST",
+              url: `${failedUrl}/retry`,
+              headers: auth,
+            })
+          ).statusCode,
+          202,
+        );
+        for (let i = 0; i < 50; i += 1) {
+          completed = await app.inject({
+            method: "GET",
+            url: failedUrl,
+            headers: auth,
+          });
+          if (completed.json().status === "completed") break;
+          await new Promise((resolve) => setTimeout(resolve, 10));
+        }
+        assert.equal(completed?.json().status, "completed");
       } finally {
         await app.close();
       }
@@ -456,7 +569,7 @@ test(
       await db.deleteFrom("receipts").execute();
       await db.deleteFrom("users").execute();
 
-      for (let i = 0; i < 2; i += 1) {
+      for (let i = 0; i < 3; i += 1) {
         const rollback = await migrator.migrateDown();
         if (rollback.error) throw rollback.error;
         assert.equal(rollback.results?.[0]?.status, "Success");

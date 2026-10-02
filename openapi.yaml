@@ -3,9 +3,9 @@ info:
   title: Receipt Manager API
   version: 0.1.0
   description: >-
-    First-release contract for personal receipts. /health, /v1/me, /v1/categories,
-    and /v1/receipts, including private receipt images, are implemented; spending summaries follow in Step 8. Amounts are decimal strings with
-    two fractional digits, and dates are calendar dates in YYYY-MM-DD form.
+    Personal receipt API with private images and asynchronous local OCR scans.
+    Spending summaries remain planned. Amounts are decimal strings with two
+    fractional digits, and dates are calendar dates in YYYY-MM-DD form.
 servers:
   - url: http://127.0.0.1:3000
 security:
@@ -201,6 +201,65 @@ paths:
             image/webp: { schema: { type: string, format: binary } }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "404": { $ref: "#/components/responses/NotFound" }
+  /v1/scans:
+    post:
+      summary: Start a private OCR scan for the signed-in user
+      description: >-
+        Upload JPEG, PNG, or WebP bytes up to 10 MiB. OCR runs locally in a
+        background worker. The image and job expire after 24 hours. OCR never
+        creates a receipt; the user must review suggestions and call POST /v1/receipts.
+      requestBody:
+        required: true
+        content:
+          image/jpeg: { schema: { type: string, format: binary } }
+          image/png: { schema: { type: string, format: binary } }
+          image/webp: { schema: { type: string, format: binary } }
+      responses:
+        "202":
+          description: Scan queued
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ScanJob" }
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "413": { $ref: "#/components/responses/ValidationError" }
+  /v1/scans/{id}:
+    parameters:
+      - {
+          name: id,
+          in: path,
+          required: true,
+          schema: { type: string, format: uuid },
+        }
+    get:
+      summary: Read an owned scan job
+      responses:
+        "200":
+          description: Current job status and suggested fields
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ScanJob" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /v1/scans/{id}/retry:
+    parameters:
+      - {
+          name: id,
+          in: path,
+          required: true,
+          schema: { type: string, format: uuid },
+        }
+    post:
+      summary: Retry a failed owned scan once
+      responses:
+        "202":
+          description: Scan queued again
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ScanJob" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/ValidationError" }
   /v1/spending/summary:
     get:
       summary: Monthly totals for the signed-in user's receipts
@@ -357,6 +416,40 @@ components:
           }
         createdAt: { type: string, format: date-time }
         updatedAt: { type: string, format: date-time }
+    ScanFields:
+      type: object
+      additionalProperties: false
+      description: Suggestions only; fields may be absent when uncertain.
+      properties:
+        merchant: { type: string }
+        purchaseDate: { type: string, format: date }
+        total: { $ref: "#/components/schemas/Money" }
+        currency: { $ref: "#/components/schemas/Currency" }
+        subtotal: { $ref: "#/components/schemas/Money" }
+        tax: { $ref: "#/components/schemas/Money" }
+    ScanJob:
+      type: object
+      required:
+        [
+          id,
+          status,
+          fields,
+          errorCode,
+          attempts,
+          createdAt,
+          updatedAt,
+          expiresAt,
+        ]
+      properties:
+        id: { type: string, format: uuid }
+        status: { type: string, enum: [pending, processing, completed, failed] }
+        fields:
+          anyOf: [{ $ref: "#/components/schemas/ScanFields" }, { type: "null" }]
+        errorCode: { type: [string, "null"], enum: [NO_TEXT, OCR_FAILED, null] }
+        attempts: { type: integer, minimum: 0, maximum: 2 }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+        expiresAt: { type: string, format: date-time }
     ApiError:
       type: object
       required: [error]

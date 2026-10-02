@@ -9,11 +9,13 @@ import {
   type ImageStorage,
 } from "./image-storage.js";
 import { registerReceiptRoutes } from "./receipts.js";
+import { registerScanRoutes, type ScanService } from "./scans.js";
 
 interface AppOptions {
   database?: Kysely<Database>;
   verifyToken?: TokenVerifier;
   imageStorage?: ImageStorage;
+  scanService?: ScanService;
 }
 
 export function buildApp(options: AppOptions = {}) {
@@ -144,6 +146,7 @@ export function buildApp(options: AppOptions = {}) {
 
   if (options.database)
     registerReceiptRoutes(app, options.database, options.imageStorage);
+  if (options.scanService) registerScanRoutes(app, options.scanService);
 
   return app;
 }

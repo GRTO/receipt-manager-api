@@ -5,6 +5,7 @@ import {
   type Generated,
 } from "kysely";
 import { Pool, types } from "pg";
+import type { ScanFields } from "../scan-fields.js";
 
 type CreatedAt = ColumnType<Date, undefined, never>;
 type UpdatedAt = ColumnType<Date, undefined, Date | undefined>;
@@ -43,6 +44,18 @@ export interface Database {
     image_object_key: string | null;
     created_at: CreatedAt;
     updated_at: UpdatedAt;
+  };
+  scan_jobs: {
+    id: Generated<string>;
+    owner_user_id: string;
+    image_object_key: string;
+    status: "pending" | "processing" | "completed" | "failed";
+    fields: ScanFields | null;
+    error_code: string | null;
+    attempts: Generated<number>;
+    created_at: CreatedAt;
+    updated_at: UpdatedAt;
+    expires_at: Generated<Date>;
   };
 }
 
