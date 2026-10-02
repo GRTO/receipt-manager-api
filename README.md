@@ -86,3 +86,24 @@ The default `./data/images` directory is ignored by Git. Keep it private to the 
 This repository provides the server foundation, configuration validation, a shared error format, a tested health route, PostgreSQL schema/migrations, Supabase JWT verification, `GET /v1/me`, categories, and owner-scoped receipt CRUD with filtering and cursor pagination. Calendar dates remain strings through the database layer to avoid timezone shifts. The [frontend plan](../receipt-manager/README.md) describes the implementation sequence.
 
 Private receipt images are implemented in Step 6. Receipt create and update reject `imageUploadId`; upload to an existing receipt using the image route instead. A receipt without an image returns `imageUrl: null`.
+
+## Local OCR scans
+
+Step 9 backend scan jobs run with Tesseract.js and the Portuguese and English
+language models installed by `npm install`. Recognition runs inside the API
+process and makes no OCR service calls. It uses CPU and memory on the host;
+there is no per-scan charge. Run `npm run db:migrate` after updating this branch.
+
+Send JPEG, PNG, or WebP bytes (maximum 10 MiB) to `POST /v1/scans` with a bearer
+token and matching `Content-Type`. The response is a `202` job. Poll
+`GET /v1/scans/{id}` for `pending`, `processing`, `completed`, or `failed`. A
+failed job can be retried once with `POST /v1/scans/{id}/retry`. Jobs and their
+private source images expire after 24 hours; the worker cleans them up.
+
+Completed jobs return suggested `merchant`, `purchaseDate`, `total`, `currency`,
+`subtotal`, and `tax` fields when recognized. The API does not save a receipt
+from these suggestions. The frontend must show its review form, allow edits,
+then create a receipt through `POST /v1/receipts`. Scans are scoped to the
+authenticated owner. The current worker assumes one API process and storage
+directory; do not run multiple instances against the same scan table without
+adding a distributed claim and shared image storage.

@@ -65,18 +65,18 @@ Use an exact database representation for money, such as `numeric` with a chosen 
 
 Put the API under `/v1`. The exact request and response schemas should be recorded in OpenAPI and checked against the frontend service interface.
 
-| Route                      | Purpose                                                                                            |
-| -------------------------- | -------------------------------------------------------------------------------------------------- |
-| `GET /v1/me`               | Return the authenticated user and relevant preferences.                                            |
-| `GET /v1/categories`       | Return selectable categories.                                                                      |
-| `GET /v1/receipts`         | List accessible receipts with search, month, category, ownership, sort, limit, and cursor filters. |
-| `GET /v1/receipts/:id`     | Read one accessible receipt.                                                                       |
-| `POST /v1/receipts`        | Create a receipt from validated, user-reviewed data.                                               |
-| `PATCH /v1/receipts/:id`   | Update an accessible receipt.                                                                      |
-| `DELETE /v1/receipts/:id`  | Delete an accessible receipt and define associated image cleanup.                                  |
-| `PUT /v1/receipts/:id/image` | Upload or replace an owned receipt's image through the server.                                  |
-| `GET /v1/receipts/:id/image` | View an owned receipt's image through the authenticated API.                                    |
-| `GET /v1/spending/summary` | Return server-calculated totals and category breakdown by month, ownership, and currency.          |
+| Route                        | Purpose                                                                                            |
+| ---------------------------- | -------------------------------------------------------------------------------------------------- |
+| `GET /v1/me`                 | Return the authenticated user and relevant preferences.                                            |
+| `GET /v1/categories`         | Return selectable categories.                                                                      |
+| `GET /v1/receipts`           | List accessible receipts with search, month, category, ownership, sort, limit, and cursor filters. |
+| `GET /v1/receipts/:id`       | Read one accessible receipt.                                                                       |
+| `POST /v1/receipts`          | Create a receipt from validated, user-reviewed data.                                               |
+| `PATCH /v1/receipts/:id`     | Update an accessible receipt.                                                                      |
+| `DELETE /v1/receipts/:id`    | Delete an accessible receipt and define associated image cleanup.                                  |
+| `PUT /v1/receipts/:id/image` | Upload or replace an owned receipt's image through the server.                                     |
+| `GET /v1/receipts/:id/image` | View an owned receipt's image through the authenticated API.                                       |
+| `GET /v1/spending/summary`   | Return server-calculated totals and category breakdown by month, ownership, and currency.          |
 
 For uploads, validate file type and size, use unique object keys, and keep the image directory private. Return an authorized image endpoint rather than saving permanent public URLs as the source of truth. A later OCR flow can use `POST /v1/scans` and `GET /v1/scans/:id` to track extraction. The current mock `extractReceipt` method should pass its result into the review form when this is integrated; it is currently discarded by the preview screen.
 
@@ -157,8 +157,8 @@ Expo OTP user interface is implemented in Step 7.
 
 ### Step 9: OCR — post-release
 
-- [ ] Select an OCR provider and define scan job status, failures, and retry behavior.
-- [ ] Add scan endpoints and persist only the data needed for review and troubleshooting.
+- [x] Select local Tesseract.js OCR with bundled Portuguese and English models. Jobs use pending, processing, completed, and failed states; a failed job can be retried once.
+- [x] Add owner-scoped scan endpoints. Persist only suggested fields, status, error code, and an expiring private image key; do not persist raw OCR text.
 - [ ] Pass extracted fields into the existing review form; save only after user confirmation.
 
 ### Step 10: Households and sharing — post-release
