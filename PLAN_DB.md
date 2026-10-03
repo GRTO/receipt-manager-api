@@ -143,10 +143,12 @@ Expo OTP user interface is implemented in Step 7.
 
 ### Step 7: Connect the Expo frontend
 
-- [ ] Replace the demo login navigation with Supabase Auth email one-time passcodes; store native session tokens with SecureStore.
-- [ ] Implement a typed HTTP `ReceiptService` using `EXPO_PUBLIC_API_URL`; keep the mock service available for UI work if useful.
-- [ ] Connect receipt list, detail, create, edit, delete, categories, and image upload; handle loading, empty, and error states.
+- [x] Replace the demo login navigation with Supabase Auth email one-time passcodes; store native session tokens with SecureStore. The frontend implementation is on branch `feat/step-7-api-integration`.
+- [x] Implement a typed HTTP `ReceiptService` using `EXPO_PUBLIC_API_URL`; keep the mock service available for UI work if useful.
+- [x] Connect receipt list, detail, create, edit, delete, categories, and image upload; handle loading, empty, and error states.
 - [ ] Check the complete flow on a device/emulator, including app restart and a second user who must not see the first user's receipts.
+
+The final device check needs a Supabase Free project URL and publishable key, an authorized test email address, and an asymmetric JWT signing key. The frontend README has the setup steps. No paid storage or plan is required for the personal setup.
 
 ### Step 8: Accurate spending summaries — working app milestone
 
